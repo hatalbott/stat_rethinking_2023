@@ -154,6 +154,9 @@ pC1 <- as.numeric( Cn[,2]/n[,2] )
 points( (pC0) , (pC1) , lwd=2 , cex=2*apply(n,1,sum)/100 + 0.5 )
 
 for ( i in 1:61 ) {
-    lines( c(pC0[i],p0x[i])) , c(pC1[i],p1x[i]) )
+    lines( c(pC0[i]
+             ,p0x[i])
+    , c(pC1[i],p1x[i]) 
+    )
 }
 
