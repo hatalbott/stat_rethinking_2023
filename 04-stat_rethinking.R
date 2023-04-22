@@ -409,10 +409,586 @@ shade(height.PI89, weight.seq)
 shade(height.PI97, weight.seq)
 
 
+## 4.5 Curves from lines ---------------------------------------------------
+
+library(rethinking)
+
+data("Howell1")
+
+d <- Howell1
+
+plot(height ~ weight, d)
+
+d$weight_s <- (d$weight - mean(d$weight))/sd(d$weight)
+d$weight_s2 <- d$weight_s^2
+
+#Linear approximation
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b*weight_s
+    , a ~ dnorm(178, 20)
+    , b ~ dlnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d
+)
+
+precis(m4.3)
+
+#Fit linear
+weight.seq <- seq(from=-2.2, to=2, length.out=30)
+
+pred_dat_lin <- list(weight_s=weight.seq)
+
+mu_lin <- link(m4.3, data = pred_dat_lin)
+
+mu.mean_lin <- apply(mu_lin, 2, mean)
+
+mu.PI_lin <- apply(mu_lin, 2, PI, prob=0.89)
+
+sim.height_lin <- sim(m4.3, data=pred_dat_lin)
+
+height.PI_lin <- apply(sim.height_lin, 2, PI, prob=0.89)
+
+#Plot linear
+plot(height ~ weight_s, d, col=col.alpha(rangi2, 0.5))
+
+lines(weight.seq, mu.mean_lin)
+
+shade(mu.PI_lin, weight.seq)
+
+shade(height.PI_lin, weight.seq)
+
+#Quadratic approximation
+m4.5 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b1*weight_s + b2*weight_s2
+    , a ~ dnorm(178, 20)
+    , b1 ~ dlnorm(0, 1)
+    , b2 ~ dnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d
+)
+
+precis(m4.5)
+
+weight.seq <- seq(from=-2.2, to=2, length.out=30)
+
+pred_dat <- list(weight_s=weight.seq, weight_s2=weight.seq^2)
+
+mu <- link(m4.5, data = pred_dat)
+
+mu.mean <- apply(mu, 2, mean)
+
+mu.PI <- apply(mu, 2, PI, prob=0.89)
+
+sim.height <- sim(m4.5, data=pred_dat)
+
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+
+#Plot quadratic
+plot(height ~ weight_s, d, col=col.alpha(rangi2, 0.5))
+
+lines(weight.seq, mu.mean)
+
+shade(mu.PI, weight.seq)
+
+shade(height.PI, weight.seq)
+
+
+#Parabolic approximation
+d$weight_s3 <- d$weight_s^3
+
+m4.6 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b1*weight_s + b2*weight_s2 + b3*weight_s3
+    , a ~ dnorm(178, 20)
+    , b1 ~ dlnorm(0, 1)
+    , b2 ~ dnorm(0, 10)
+    , b3 ~ dnorm(0, 10)
+    , sigma ~ dunif(0, 50)
+  ), data = d
+)
+
+precis(m4.6)
+
+
+#Parabolic fitting
+
+pred_dat_par <- list(weight_s=weight.seq, weight_s2=weight.seq^2, weight_s3=weight.seq^3)
+
+mu_par <- link(m4.6, data = pred_dat_par)
+
+mu.mean_par <- apply(mu_par, 2, mean)
+
+mu.PI_par <- apply(mu_par, 2, PI, prob=0.89)
+
+sim.height_par <- sim(m4.6, data=pred_dat_par)
+
+height.PI_par <- apply(sim.height_par, 2, PI, prob=0.89)
+
+
+#Plot parabolic
+plot(height ~ weight_s, d, col=col.alpha(rangi2, 0.5), xaxt="n")
+
+lines(weight.seq, mu.mean_par)
+
+shade(mu.PI_par, weight.seq)
+
+shade(height.PI_par, weight.seq)
+
+at <- c(-2,-1,0,1,2)
+labels <- at*sd(d$weight)+mean(d$weight)
+axis(side = 1, at=at, labels = round(labels, 1))
+
+rm(list = ls())
+
+## 4.5.2 Splines -----------------------------------------------------------
+
+library(rethinking)
+
+data("cherry_blossoms")
+
+d <- cherry_blossoms
+
+precis(d)
+
+plot(doy ~ year, d)
+
+d2 <- d[complete.cases(d$doy),]
+
+num_knots <- 15
+
+knot_list <- quantile(d2$year, probs = seq(0, 1, length.out=num_knots))
+
+library(splines)
+
+#create splines
+B <- bs(d2$year
+        , knots = knot_list[-c(1,num_knots)]
+        , degree = 3
+        , intercept = TRUE
+        )
+
+#plot splines
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(0,1)
+     , xlab = "year"
+     , ylab = "basis"
+     )
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, B[,i])
+}
+
+m4.7 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4.7, depth = 2)
+
+post <- extract.samples(m4.7)
+
+w <- apply(post$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+     )
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, w[i]*B[,i])
+}
+
+mu <- link(m4.7)
+
+mu_PI <- apply(mu, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+     )
+
+shade(mu_PI
+      , d2$year
+      , col=col.alpha("black", 0.3)
+      )
+
+rm(list = ls())
+
+# Book Homework -----------------------------------------------------------
+
+
+## 4M1 ---------------------------------------------------------------------
+
+sample_mu <- rnorm(1e4, 0, 10)
+
+sample_sigma <- rexp(1e4, 1)
+
+dens(sample_mu)
+
+dens(sample_sigma)
+
+prior_y <- rnorm(1e4, sample_mu, sample_sigma)
+
+dens(prior_y)
+
+
+## 4M2 ---------------------------------------------------------------------
+
+m4m2 <- quap(
+  alist(
+    y ~ dnorm(mu, sigma)
+    mu ~ dnorm(0, 10)
+    sigma ~ dexp(1)
+  )
+)
+
+## 4M7 ---------------------------------------------------------------------
+
+data("Howell1")
+d <- Howell1
+d2 <- d[d$age >= 18, ]
+
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b * (weight - mean(d2$weight))
+    , a ~ dnorm(178, 20)
+    , b ~ dlnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d2
+)
+
+precis(m4.3)
+
+round(vcov(m4.3), 3)
+diag(vcov(m4.3))
+cov2cor(vcov(m4.3))
+
+plot(height ~ weight, data=d2, col=rangi2)
+
+post <- extract.samples(m4.3)
+
+precis(post)
+
+plot(post)
+
+HPDI(post, prob=0.89)
+
+a_map <- mean(post$a)
+
+b_map <- mean(post$b)
+
+curve(a_map+b_map*(x-mean(d2$weight)), add=TRUE)
+
+head(post)
+
+m4.3b <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b * (weight)
+    , a ~ dnorm(178, 20)
+    , b ~ dlnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d2
+)
+
+precis(m4.3b)
+
+round(vcov(m4.3b), 3)
+diag(vcov(m4.3b))
+cov2cor(vcov(m4.3b))
+
+plot(height ~ weight, data=d2, col=rangi2)
+
+postb <- extract.samples(m4.3b)
+
+precis(postb)
+
+plot(postb)
+
+HPDI(postb, prob=0.89)
+
+a_mapb <- mean(postb$a)
+
+b_mapb <- mean(postb$b)
+
+curve(a_mapb+b_mapb*(x), add=TRUE)
+
+head(post)
+
+# Each entry shows the correlation for each pair of parameters. 
+# The 1's indicate a paramenter's correlation with itself. 
+# BAD if anything except 1. 
+# The other entries are typically closer to zero. 
+# This indicates that learning a tells us nothing about b. 
+# But because we didn't correct for mean weight (xbar) in m4.3b learning about a "the intercept/expected height at xbar" 
+# does give us information about b "the slope/rate of change in expectation" best seen with plot(post) and plot (postb)
+
+rm(list = ls())
+
+## 4M8 ---------------------------------------------------------------------
+
+data("cherry_blossoms")
+
+d <- cherry_blossoms
+
+precis(d)
+
+plot(doy ~ year, d)
+
+d2 <- d[complete.cases(d$doy),]
+
+
+### Original ----------------------------------------------------------------
+
+
+num_knots <- 15
+
+knot_list <- quantile(d2$year, probs = seq(0, 1, length.out=num_knots))
+
+#create splines
+B <- bs(d2$year
+        , knots = knot_list[-c(1,num_knots)]
+        , degree = 3
+        , intercept = TRUE
+)
+
+#plot splines
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(0,1)
+     , xlab = "year"
+     , ylab = "basis"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, B[,i])
+}
+
+m4.7 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4.7, depth = 2)
+
+post <- extract.samples(m4.7)
+
+w <- apply(post$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, w[i]*B[,i])
+}
+
+mu <- link(m4.7)
+
+mu_PI <- apply(mu, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+     , main="15 knots, sigma ~ dexp(1)"
+)
+
+shade(mu_PI
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+
+### Double knots ------------------------------------------------------------
+
+num_knots2 <- 30
+
+knot_list2 <- quantile(d2$year, probs = seq(0, 1, length.out=num_knots2))
+
+#create splines
+B2 <- bs(d2$year
+        , knots = knot_list2[-c(1,num_knots)]
+        , degree = 3
+        , intercept = TRUE
+)
+
+#plot splines
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(0,1)
+     , xlab = "year"
+     , ylab = "basis"
+)
+
+for (i in 1:ncol(B2)) {
+  lines(d2$year, B2[,i])
+}
+
+m4.72 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B2)
+  , start = list(w=rep(0, ncol(B2)))
+)
+
+precis(m4.72, depth = 2)
+
+post2 <- extract.samples(m4.72)
+
+w2 <- apply(post2$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B2)) {
+  lines(d2$year, w2[i]*B2[,i])
+}
+
+mu2 <- link(m4.72)
+
+mu_PI2 <- apply(mu2, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+     , main="30 knots, sigma ~ dexp(1)"
+)
+
+shade(mu_PI2
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+### Width of prior dunif(0, 50)------------------------------------------------------------
+
+m4.73 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dunif(0, 50)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4.73, depth = 2)
+
+post3 <- extract.samples(m4.73)
+
+w3 <- apply(post3$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, w3[i]*B[,i])
+}
+
+mu3 <- link(m4.73)
+
+mu_PI3 <- apply(mu3, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+     , main="15 knots, sigma ~ dunif(0, 50)"
+)
+
+shade(mu_PI3
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+### Width of prior dexp(10)------------------------------------------------------------
+
+m4.74 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(100)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4.74, depth = 2)
+
+post4 <- extract.samples(m4.74)
+
+w4 <- apply(post4$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, w4[i]*B[,i])
+}
+
+mu4 <- link(m4.74)
+
+mu_PI4 <- apply(mu4, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+     , main="15 knots, sigma ~ dexp(100)"
+)
+
+shade(mu_PI4
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+rm(list = ls())
+
 # Video -------------------------------------------------------------------
-
-
-
 
 # S=1 female; S=2 male
 sim_HW <- function(S, b, a) {
