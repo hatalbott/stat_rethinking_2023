@@ -422,6 +422,7 @@ plot(height ~ weight, d)
 d$weight_s <- (d$weight - mean(d$weight))/sd(d$weight)
 d$weight_s2 <- d$weight_s^2
 
+### Linear ---------------------------------------------------
 #Linear approximation
 m4.3 <- quap(
   alist(
@@ -459,6 +460,7 @@ shade(mu.PI_lin, weight.seq)
 
 shade(height.PI_lin, weight.seq)
 
+### Quadratic ---------------------------------------------------
 #Quadratic approximation
 m4.5 <- quap(
   alist(
@@ -497,6 +499,7 @@ shade(mu.PI, weight.seq)
 shade(height.PI, weight.seq)
 
 
+### Parabolic ---------------------------------------------------
 #Parabolic approximation
 d$weight_s3 <- d$weight_s^3
 
@@ -743,6 +746,9 @@ rm(list = ls())
 
 ## 4M8 ---------------------------------------------------------------------
 
+library(rethinking)
+library(splines)
+
 data("cherry_blossoms")
 
 d <- cherry_blossoms
@@ -755,7 +761,6 @@ d2 <- d[complete.cases(d$doy),]
 
 
 ### Original ----------------------------------------------------------------
-
 
 num_knots <- 15
 
@@ -894,8 +899,54 @@ shade(mu_PI2
       , col=col.alpha("black", 0.3)
 )
 
-### Width of prior dunif(0, 50)------------------------------------------------------------
+### Change Weight we assign to each segment of spline ----------------------------------------------------------------
 
+m4.73 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 2) #Change is here
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4.73, depth = 2)
+
+post3 <- extract.samples(m4.73)
+
+w3 <- apply(post3$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, w3[i]*B[,i])
+}
+
+mu3 <- link(m4.73)
+
+mu_PI3 <- apply(mu3, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+     , main="15 knots, sigma ~ dexp(1)"
+)
+
+shade(mu_PI3
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+### Width of prior dunif(0, 50)------------------------------------------------------------
+##This doesn't make much difference
 m4.73 <- quap(
   alist(
     D ~ dnorm(mu, sigma)
@@ -941,6 +992,7 @@ shade(mu_PI3
 )
 
 ### Width of prior dexp(10)------------------------------------------------------------
+##This doesn't make much difference
 
 m4.74 <- quap(
   alist(
@@ -987,6 +1039,457 @@ shade(mu_PI4
 )
 
 rm(list = ls())
+
+
+## 4H1 ---------------------------------------------------------------------
+
+#1 Question: find expected height based on weight
+
+data("Howell1")
+
+d <- Howell1
+
+plot(d$height ~ d$weight)
+
+d2 <- d[d$age>=18,]
+
+plot(d2$height ~ d2$weight_s)
+
+#2 Assumptions: 
+
+set.seed(2971)
+
+N <- 100
+
+a <- rnorm(N, 178, 20)
+
+b <- rlnorm(N, 0, 1)
+
+plot(NULL
+     , xlim = range(d2$weight)
+     , ylim=c(-100, 400)
+     , xlab="weight"
+     , ylab="height"
+)
+
+abline(h=0, lty=2)
+
+abline(h=272, lty=1, lwd=0.5)
+
+mtext("b ~ dlnorm(0, 10)")
+
+xbar <- mean(d2$weight)
+  
+  for (i in 1:N) {
+    curve(a[i] + b[i]*(x-xbar)
+          , from=min(d2$weight)
+          , to=max(d2$weight)
+          , add=TRUE
+          , col=col.alpha("black", 0.2)
+    )
+  }
+
+#3 Generative model
+
+#Linear approximation
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b*weight
+    , a ~ dnorm(178, 20)
+    , b ~ dlnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d2
+)
+
+precis(m4.3)
+
+post <- extract.samples(m4.3)
+
+str(post)
+
+y1 <- rnorm(1e4, post$a + post$b*46.95, post$sigma)
+y2 <- rnorm(1e4, post$a + post$b*43.72, post$sigma)
+y3 <- rnorm(1e4, post$a + post$b*64.78, post$sigma)
+y4 <- rnorm(1e4, post$a + post$b*32.59, post$sigma)
+y5 <- rnorm(1e4, post$a + post$b*54.63, post$sigma)
+
+#5 Profit
+
+p1 <- mean(y1)
+p1_PI <- PI(y1, prob = 0.89)
+  
+p2 <- mean(y2)
+p2_PI <- PI(y2, prob = 0.89)
+
+p3 <- mean(y3)
+p3_PI <- PI(y3, prob = 0.89)
+
+p4 <- mean(y4)
+p4_PI <- PI(y4, prob = 0.89)
+
+p5 <- mean(y5)
+p5_PI <- PI(y5, prob = 0.89)
+
+rm(list = ls())
+
+
+## 4H2 ---------------------------------------------------------------------
+
+data("Howell1")
+
+d <- Howell1[Howell1$age<18,]
+
+plot(d$height ~ d$weight)
+
+### 4H2a ---------------------------------------------------------------------
+
+#2 Assumptions: 
+
+set.seed(2971)
+
+N <- 100
+
+a <- rnorm(N, 100, 50)
+
+b <- rlnorm(N, 0, 1)
+
+plot(NULL
+     , xlim = range(d$weight)
+     , ylim = c(-10, 180)
+     , xlab="weight"
+     , ylab="height"
+)
+
+abline(h=0, lty=2)
+
+mtext("Priors graph")
+
+xbar <- mean(d$weight)
+
+for (i in 1:N) {
+  curve(a[i] + b[i]*(x-xbar)
+        , from=min(d$weight)
+        , to=max(d$weight)
+        , add=TRUE
+        , col=col.alpha("black", 0.2)
+  )
+}
+
+#3 Generative model
+
+#Linear approximation
+m2H2a <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b*weight
+    , a ~ dnorm(100, 50)
+    , b ~ dlnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d
+)
+
+precis(m2H2a)
+
+an2H2a <- 10*2.72
+
+
+### 4H2b ---------------------------------------------------------------------
+
+mu_lin <- link(m2H2a)
+
+mu.mean_lin <- apply(mu_lin, 2, mean)
+
+mu.PI_lin <- apply(mu_lin, 2, PI, prob=0.89)
+
+#Plot linear
+plot(height ~ weight, d, col=col.alpha(rangi2, 0.5))
+
+lines(d$weight, mu.mean_lin)
+
+shade(mu.PI_lin, d$weight)
+
+
+### 4H2b ---------------------------------------------------------------------
+
+#Tails clearly do not fit linear line, change to quadratic or above model
+
+rm(list=ls())
+
+## 4H3 ---------------------------------------------------------------------
+### 4H3a ---------------------------------------------------------------------
+
+library(rethinking)
+
+data("Howell1")
+
+d4H3 <- Howell1
+
+d4H3$weight_log <- log(d4H3$weight)
+
+plot(height ~ weight, data=d4H3)
+
+plot(height ~ weight_log, data=d4H3)
+
+m4H3a <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b*weight_log
+    , a ~ dnorm(138, 100)
+    , b ~ dnorm(0, 100)
+    , sigma ~ dunif(0, 50)
+  ), data = d4H3
+)
+
+precis(m4H3a)
+
+
+### 4H3b ---------------------------------------------------------------------
+
+post <- extract.samples(m4H3a)
+
+range(d4H3$weight_log)
+
+lw.seq <- seq(from = floor(min(d4H3$weight_log)*10)/10, to = ceiling(max(d4H3$weight_log)*10)/10, length.out = 50)
+
+pred_dat_lin <- list(weight_log=lw.seq)
+
+mu_lin <- link(m4H3a, data = pred_dat_lin)
+
+mu.mean_lin <- apply(mu_lin, 2, mean)
+
+mu.PI_lin <- apply(mu_lin, 2, PI, prob = 0.97)
+
+sim.height_lin <- sim(m4H3a, data=pred_dat_lin)
+
+height.PI_lin <- apply(sim.height_lin, 2, PI, prob=0.97)
+
+#Plot linear
+plot(height ~ weight, d4H3, col=col.alpha(rangi2, 0.5))
+
+lines(exp(lw.seq), mu.mean_lin)
+
+shade(mu.PI_lin, exp(lw.seq))
+
+shade(height.PI_lin, exp(lw.seq))
+
+lines(exp(lw.seq), mu.PI_lin[1,], lty=2)
+lines(exp(lw.seq), mu.PI_lin[2,], lty=2)
+
+lines(exp(lw.seq), height.PI_lin[1,], lty=3)
+lines(exp(lw.seq), height.PI_lin[2,], lty=3)
+
+##My CI lines are much narrower than in practice problems bc I was looking at CI of mu rather than CI of height predication
+
+rm(list=ls())
+
+## 4H4 ---------------------------------------------------------------------
+
+data("Howell1")
+
+d <- Howell1
+
+d$weight_s <- (d$weight - mean(d$weight))/sd(d$weight)
+d$weight_s2 <- d$weight_s^2
+d$weight_s3 <- d$weight_s^3
+
+plot(d$height ~ d$weight_s)
+
+set.seed(2971)
+
+N <- 100
+
+a <- rnorm(N, 180, 20)
+
+b1 <- rnorm(N, 50, 20)
+
+b2 <- runif(N, -100, 1)
+
+plot(NULL
+     , xlim = range(d$weight_s)
+     , ylim=c(-100, 400)
+     , xlab="weight"
+     , ylab="height"
+)
+
+abline(h=0, lty=2)
+
+abline(h=272, lty=1, lwd=0.5)
+
+mtext("Quadratic Priors")
+
+  for (i in 1:N) {
+    curve(a[i] + b1[i]*x + b2[i]*x^2
+          , from=min(d$weight_s)
+          , to=max(d$weight_s)
+          , add=TRUE
+          , col=col.alpha("black", 0.2)
+    )
+  }
+
+library(tidyverse)
+
+n <- 1000
+tibble(group = seq_len(n),
+       alpha = rnorm(n, 178, 20),
+       beta1 = rlnorm(n, 0, 1),
+       beta2 = rnorm(n, 0, 1)) %>%
+  expand(nesting(group, alpha, beta1, beta2),
+         weight = seq(25, 70, length.out = 100)) %>%
+  mutate(height = alpha + (beta1 * weight) + (beta2 * (weight ^ 2))) %>%
+  ggplot(aes(x = weight, y = height, group = group)) +
+  geom_line(alpha = 1 / 10) +
+  geom_hline(yintercept = c(0, 272), linetype = 2:1, color = "red") +
+  annotate(geom = "text", x = 25, y = 0, hjust = 0, vjust = 1,
+           label = "Embryo") +
+  annotate(geom = "text", x = 25, y = 272, hjust = 0, vjust = 0,
+           label = "World's tallest person (272cm)") +
+  coord_cartesian(ylim = c(-25, 300)) +
+  labs(x = "Weight", y = "Height")
+
+n <- 1000
+tibble(group = seq_len(n),
+       alpha = rnorm(n, -190, 5),
+       beta1 = rnorm(n, 13, 0.2),
+       beta2 = runif(n, -0.13, -0.1)) %>%
+  expand(nesting(group, alpha, beta1, beta2),
+         weight = seq(25, 70, length.out = 100)) %>%
+  mutate(height = alpha + (beta1 * weight) + (beta2 * (weight ^ 2))) %>%
+  ggplot(aes(x = weight, y = height, group = group)) +
+  geom_line(alpha = 1 / 10) +
+  geom_hline(yintercept = c(0, 272), linetype = 2:1, color = "red") +
+  annotate(geom = "text", x = 25, y = -3, hjust = 0, vjust = 1,
+           label = "Embryo") +
+  annotate(geom = "text", x = 25, y = 275, hjust = 0, vjust = 0,
+           label = "World's tallest person (272cm)") +
+  coord_cartesian(ylim = c(-25, 300)) +
+  labs(x = "Weight", y = "Height")
+
+rm(list=ls())
+
+## 4H5 ---------------------------------------------------------------------
+
+data("cherry_blossoms")
+
+d <- cherry_blossoms
+d2 <- d[complete.cases(d$doy),]
+d3 <- d2[complete.cases(d2$temp),]
+
+plot(d3$doy ~ d3$temp)
+
+d3$temp_s <- (d3$temp - mean(d3$temp))/sd(d3$temp)
+d3$temp_s2 <- d3$temp_s^2
+d3$temp_s3 <- d3$temp_s^3
+
+plot(d3$doy ~ d3$temp_s)
+
+
+### Linear ---------------------------------------------------
+#Priors
+
+N <- 100
+
+a <- rnorm(N, 100, 100)
+
+b1 <- rnorm(N, 0, 100)
+
+plot(NULL
+     , xlim = range(d3$temp_s)
+     , ylim=c(0, 400)
+     , xlab="temp"
+     , ylab="doy"
+)
+
+mtext("Linear Priors")
+
+for (i in 1:N) {
+  curve(a[i] + b1[i]*x
+        , from=min(d3$temp_s)
+        , to=max(d3$temp_s)
+        , add=TRUE
+        , col=col.alpha("black", 0.2)
+  )
+}
+
+#Linear approximation
+m4H5 <- quap(
+  alist(
+    doy ~ dnorm(mu, sigma)
+    , mu <- a + b1*temp_s
+    , a ~ dnorm(100, 100)
+    , b1 ~ dnorm(0, 100)
+    , sigma ~ dunif(0, 50)
+  ), data = d3
+)
+
+precis(m4H5)
+
+#Fit linear
+range(d3$temp_s)
+
+temp.seq <- seq(from = floor(min(d3$temp_s)*10)/10, to = ceiling(max(d3$temp_s)*10)/10, length.out = 50)
+
+pred_dat_lin <- list(temp_s=temp.seq)
+
+mu_lin <- link(m4H5, data = pred_dat_lin)
+
+mu.mean_lin <- apply(mu_lin, 2, mean)
+
+mu.PI_lin <- apply(mu_lin, 2, PI, prob=0.89)
+
+sim.doy_lin <- sim(m4H5, data=pred_dat_lin)
+
+doy.PI_lin <- apply(sim.doy_lin, 2, PI, prob=0.89)
+
+#Plot linear
+plot(doy ~ temp_s, d3, col=col.alpha(rangi2, 0.5))
+
+lines(temp.seq, mu.mean_lin)
+
+shade(mu.PI_lin, temp.seq)
+
+shade(doy.PI_lin, temp.seq)
+
+### Quadratic ---------------------------------------------------
+#Quadratic approximation
+m4.5 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma)
+    , mu <- a + b1*weight_s + b2*weight_s2
+    , a ~ dnorm(178, 20)
+    , b1 ~ dlnorm(0, 1)
+    , b2 ~ dnorm(0, 1)
+    , sigma ~ dunif(0, 50)
+  ), data = d
+)
+
+precis(m4.5)
+
+weight.seq <- seq(from=-2.2, to=2, length.out=30)
+
+pred_dat <- list(weight_s=weight.seq, weight_s2=weight.seq^2)
+
+mu <- link(m4.5, data = pred_dat)
+
+mu.mean <- apply(mu, 2, mean)
+
+mu.PI <- apply(mu, 2, PI, prob=0.89)
+
+sim.height <- sim(m4.5, data=pred_dat)
+
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+
+#Plot quadratic
+plot(height ~ weight_s, d, col=col.alpha(rangi2, 0.5))
+
+lines(weight.seq, mu.mean)
+
+shade(mu.PI, weight.seq)
+
+shade(height.PI, weight.seq)
+
+
+
 
 # Video -------------------------------------------------------------------
 
