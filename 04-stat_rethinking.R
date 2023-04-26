@@ -1450,195 +1450,523 @@ shade(mu.PI_lin, temp.seq)
 
 shade(doy.PI_lin, temp.seq)
 
+mtext("Linear Predications")
+
+
 ### Quadratic ---------------------------------------------------
-#Quadratic approximation
-m4.5 <- quap(
-  alist(
-    height ~ dnorm(mu, sigma)
-    , mu <- a + b1*weight_s + b2*weight_s2
-    , a ~ dnorm(178, 20)
-    , b1 ~ dlnorm(0, 1)
-    , b2 ~ dnorm(0, 1)
-    , sigma ~ dunif(0, 50)
-  ), data = d
+
+#Quad priors
+
+a <- rnorm(N, 100, 100)
+
+b1 <- rnorm(N, 100, 100)
+
+b2 <- rnorm(N, 0, 100)
+
+plot(NULL
+     , xlim = range(d3$temp_s)
+     , ylim=c(0, 400)
+     , xlab="temp"
+     , ylab="doy"
 )
 
-precis(m4.5)
+mtext("Quadratic Priors")
 
-weight.seq <- seq(from=-2.2, to=2, length.out=30)
+for (i in 1:N) {
+  curve(a[i] + b1[i]*x + b2[i]*x^2
+        , from=min(d3$temp_s)
+        , to=max(d3$temp_s)
+        , add=TRUE
+        , col=col.alpha("black", 0.2)
+  )
+}
+  
+#Quadratic approximation
+m4H5b <- quap(
+  alist(
+    doy ~ dnorm(mu, sigma)
+    , mu <- a + b1*temp_s
+    , a ~ dnorm(100, 100)
+    , b1 ~ dnorm(100, 100)
+    , b2 ~ dnorm(0, 100)
+    , sigma ~ dunif(0, 50)
+  ), data = d3
+)
 
-pred_dat <- list(weight_s=weight.seq, weight_s2=weight.seq^2)
+precis(m4H5b)
 
-mu <- link(m4.5, data = pred_dat)
+pred_dat_quad <- list(temp_s=temp.seq, temp_s2=temp.seq^2)
 
-mu.mean <- apply(mu, 2, mean)
+mu_quad <- link(m4H5b, data = pred_dat_quad)
 
-mu.PI <- apply(mu, 2, PI, prob=0.89)
+mu.mean_quad <- apply(mu_quad, 2, mean)
 
-sim.height <- sim(m4.5, data=pred_dat)
+mu.PI_quad <- apply(mu_quad, 2, PI, prob=0.89)
 
-height.PI <- apply(sim.height, 2, PI, prob=0.89)
+sim.doy_quad <- sim(m4H5b, data=pred_dat_quad)
+
+doy.PI_quad <- apply(sim.doy_quad, 2, PI, prob=0.89)
 
 #Plot quadratic
-plot(height ~ weight_s, d, col=col.alpha(rangi2, 0.5))
+plot(doy ~ temp_s, d3, col=col.alpha(rangi2, 0.5))
 
-lines(weight.seq, mu.mean)
+lines(temp.seq, mu.mean_quad)
 
-shade(mu.PI, weight.seq)
+shade(mu.PI_quad, temp.seq)
 
-shade(height.PI, weight.seq)
+shade(doy.PI_quad, temp.seq)
+
+mtext("Quadratic Predications")
 
 
+### Spline ---------------------------------------------------
+#First issue was had to convert continuous variable temperature into discrete units so things would plot well.
+#Somehow in the process of doing that conversion, the spline model now gives a nearly flat line predication so something else got messed up. Most likely there is a variable that needs to be changes from the continuous dataset to the discrete dataset.
+library(splines)
 
+# grid <- tibble(temp = seq(from = min(d3$temp), to = max(d3$temp), length.out = 250)) %>% 
+#   mutate(temp_c = temp - mean(d3$temp),
+#          temp_s = temp_c / sd(d3$temp),
+#          temp_s2 = temp_s ^ 2,
+#          temp_s3 = temp_s ^ 3)
 
-# Video -------------------------------------------------------------------
+grid <- data.frame(temp_s = seq(from = floor(min(d3$temp_s)*10)/10, to = ceiling(max(d3$temp_s)*10)/10, length.out = 500))
+grid$temp_s2 <- grid$temp_s^2
+grid$temp_s3 <- grid$temp_s^3
 
-# S=1 female; S=2 male
-sim_HW <- function(S, b, a) {
-  N <- length(S)
-  H <- ifelse(S==1, 150, 160) + rnorm(N, 0, 5)
-  W <- a[S] + b[S]*H + rnorm(N, 0, 5)
-  data.frame(S, H, W)
+num_knots <- 50
+
+knot_list <- quantile(grid$temp_s, probs = seq(0, 1, length.out=num_knots))
+
+#create splines
+B <- bs(grid$temp_s
+        , knots = knot_list[-c(1,num_knots)]
+        , degree = 3
+        , intercept = TRUE
+)
+
+grid$B <- B
+
+#plot splines
+plot(NULL
+     , xlim = range(grid$temp_s)
+     , ylim = c(0,1)
+     , xlab = "temp_s"
+     , ylab = "basis"
+)
+
+for (i in 1:ncol(B)) {
+  lines(grid$temp_s, B[,i])
 }
 
-x <- sim_HW(S=rbern(100)+1, b=c(0.5, 0.6), a=c(0, 0))
-
-#Female sample
-simF <- sim_HW(S=rep(1,100), b=c(0.5, 0.6), a=c(0, 0))
-
-#<ale sample
-simM <- sim_HW(S=rep(2,100), b=c(0.5, 0.6), a=c(0, 0))
-
-#Effect of sex (male-female)
-diff <- mean(simM$W - simF$W)
-
-#Observe sample
-dat <- sim_HW(S=rbern(100)+1, b=c(0.5,0.6), a=c(0,0))
-
-#Estimate Posterior
-m_SW <- quap(
+m4H5c <- quap(
   alist(
-    W ~ dnorm(mu, sigma)
-    , mu <- a[S]
-    , a[S] ~ dnorm(60, 10)
-    , sigma ~ dunif(0,10)
-  )
-  , data=dat
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d3$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
 )
 
-precis(m_SW, depth=2)
+precis(m4H5c, depth = 2)
 
-#Analyze the real sample
-data("Howell1")
+post <- extract.samples(m4H5c)
 
-d <- Howell1[Howell1$age>=18,]
+w <- apply(post$w, 2, mean)
 
-dat = list(W=d$weight
-            , S=d$male + 1 #S=1 female, S=2 male
-            )
+plot(NULL
+     , xlim = range(grid$temp_s)
+     , ylim = c(-6,6)
+     , xlab = "temp_s"
+     , ylab = "basis * weight"
+)
 
-m_SW <- quap(
+for (i in 1:ncol(B)) {
+  lines(grid$temp_s, w[i]*B[,i])
+}
+
+mu_spline <- link(m4H5c, data = grid)
+
+mu.mean_spline <- apply(mu_spline, 2, mean)
+
+mu_PI_spline <- apply(mu_spline, 2, PI, prob=0.89)
+
+sim.doy_spline <- sim(m4H5c, data=grid)
+
+doy.PI_spline <- apply(sim.doy_spline, 2, PI, prob=0.89)
+
+plot(d3$temp_s
+     , d3$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+)
+
+lines(grid$temp_s, mu.mean_spline)
+
+shade(mu_PI_spline
+      , grid$temp_s
+      , col=col.alpha("black", 0.3)
+)
+
+shade(doy.PI_spline, grid$temp_s)
+
+mtext("Spline Predications")
+
+rm(list = ls())
+
+### Tidy Spline ---------------------------------------------------
+
+library(tidyverse)
+library(brms)
+library(here)
+library(tidyr)
+
+data(cherry_blossoms)
+
+cb_temp <- cherry_blossoms %>%
+  drop_na(doy, temp) %>%
+  mutate(temp_c = temp - mean(temp),
+         temp_s = temp_c / sd(temp),
+         temp_s2 = temp_s ^ 2,
+         temp_s3 = temp_s ^ 3)
+
+# spline model
+knots_30 <- quantile(cb_temp$temp_s, probs = seq(0, 1, length.out = 30))
+
+B_30 <- bs(cb_temp$temp_s, knots = knots_30[-c(1, 30)],
+           degree = 3, intercept = TRUE)
+
+cb_temp_30 <- cb_temp %>% 
+  mutate(B = B_30)
+
+spl_mod <- brm(doy ~ 1 + B, data = cb_temp_30, family = gaussian,
+               prior = c(prior(normal(100, 10), class = Intercept),
+                         prior(normal(0, 10), class = b),
+                         prior(exponential(1), class = sigma)),
+               iter = 2000, warmup = 1000, chains = 4, cores = 4, seed = 1234,
+               file = here("data", "final", "b4h5-spline"))
+
+#Visualize predictions
+grid <- tibble(temp = seq(from = min(cb_temp_30$temp), to = max(cb_temp_30$temp), length.out = 100)) %>% 
+  mutate(temp_c = temp - mean(cb_temp$temp),
+         temp_s = temp_c / sd(cb_temp$temp),
+         temp_s2 = temp_s ^ 2,
+         temp_s3 = temp_s ^ 3)
+
+knots_30 <- quantile(grid$temp_s, probs = seq(0, 1, length.out = 30))
+
+B_30 <- bs(grid$temp_s, knots = knots_30[-c(1, 30)],
+           degree = 3, intercept = TRUE)
+
+grid <- grid %>% 
+  mutate(B = B_30)
+
+rm(list=ls())
+
+
+## 4H6 ---------------------------------------------------------------------
+
+library(rethinking)
+library(splines)
+
+data("cherry_blossoms")
+
+d <- cherry_blossoms
+
+precis(d)
+
+plot(doy ~ year, d)
+
+d2 <- d[complete.cases(d$doy),]
+
+num_knots <- 15
+
+knot_list <- quantile(d2$year, probs = seq(0, 1, length.out=num_knots))
+
+#create splines
+B <- bs(d2$year
+        , knots = knot_list[-c(1,num_knots)]
+        , degree = 3
+        , intercept = TRUE
+)
+
+#plot splines
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(0,1)
+     , xlab = "year"
+     , ylab = "basis"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, B[,i])
+}
+
+### Original ---------------------------------------------------------------------
+
+m4H6a <- quap(
   alist(
-    W ~ dnorm(mu, sigma)
-    , mu <- a[S]
-    , a[S] ~ dnorm(60, 10)
-    , sigma ~ dunif(0,10)
-  )
-  , data=dat
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
 )
 
-precis(m_SW, depth=2)
+posta <- extract.samples(m4H6a)
 
-# Posterior mean W
-post <- extract.samples(m_SW)
+wa <- apply(posta$w, 2, mean)
 
-
-dens(post$a[,1]
-     , xlim=c(39,50)
-     , lwd=3
-     , col = 2
-     , xlab="posterior mean weight (kg)"
-     )
-
-dens(post$a[,2]
-     , lwd = 3
-     , col = 4
-     , add = TRUE
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
 )
 
-#Posterior W distributions
-W1 <- rnorm(1000, post$a[,1], post$sigma)
+for (i in 1:ncol(B)) {
+  lines(d2$year, wa[i]*B[,i])
+}
 
-W2 <- rnorm(1000, post$a[,2], post$sigma)
-
-dens(W1
-     , xlim=c(20,70)
-     , ylim=c(0,0.085)
-     , lwd=3
-     , col = 2
-     , xlab="posterior mean weight (kg)"
-)
-
-dens(W2
-     , lwd = 3
-     , col = 4
-     , add = TRUE
-)
-
-#Causal contrast
-str(post)
-
-#causal contrast (in means)
-mu_contrast <- post$a[,2] - post$a[,1]
-
-dens(mu_contrast
-     ,xlim=c(3,10)
-     ,lwd=3
-     ,col=1
-     ,xlab="posterior mean weight contrast (kg)"
-     )
-
-#posterior W distributions
-W1 <- rnorm(1e3, post$a[,1], post$sigma)
-W2 <- rnorm(1e3, post$a[,2], post$sigma)
-
-#contrast
-W_contrast <- W2-W1
-
-dens(W_contrast
-     , xlim=c(-25,35)
-     ,lwd=3
-     ,col=1
-     ,xlab="posterior weight contrast (kg)"
-     )
-abline( v=sum(W_contrast>0)/1e3 , col="red",  lwd=3)
-
-
-#proportion above zero
-sum(W_contrast>0)/1e3
-#proportion below zero
-sum(W_contrast<0)/1e3
-
-#Analyze the sample
-d <- Howell1[Howell1$age>=18,]
-
-dat <- list(
-  W = d$weight
-  , H = d$height
-  , Hbar = mean(d$height)
-  , S = d$male +1
-)
-
-m_SHW <- quap(
+### dnorm(100, 10) ---------------------------------------------------------------------
+m4H6b <- quap(
   alist(
-    W ~ dnorm(mu,sigma)
-    , mu <- a[S] + b[S]*(H-Hbar)
-    , a[S] ~ dnorm(60, 10)
-    , b[S] ~ dunif(0, 1)
-    , sigma ~ dunif(0, 10)
-  )
-  ,data=dat
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(100, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
 )
 
+postb <- extract.samples(m4H6b)
+
+wb <- apply(postb$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, wb[i]*B[,i])
+}
+
+### dnorm(-50, 10) ---------------------------------------------------------------------
+m4H6c <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(-50, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+postc <- extract.samples(m4H6c)
+
+wc <- apply(postc$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, wc[i]*B[,i])
+}
+
+### dunif(-25, 25) ---------------------------------------------------------------------
+m4H6d <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dunif(-25, 25)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+postd <- extract.samples(m4H6d)
+
+wd <- apply(postd$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, wd[i]*B[,i])
+}
+
+
+### dnorm(0, 2) ---------------------------------------------------------------------
+m4H6e <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + B %*% w
+    , a ~ dnorm(100, 10)
+    , w ~ dnorm(0, 2)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+poste <- extract.samples(m4H6e)
+
+we <- apply(poste$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, we[i]*B[,i])
+}
+
+rm(list=ls())
+
+
+## 4H8 ---------------------------------------------------------------------
+
+data("cherry_blossoms")
+
+d <- cherry_blossoms
+
+precis(d)
+
+plot(doy ~ year, d)
+
+d2 <- d[complete.cases(d$doy),]
+
+num_knots <- 15
+
+knot_list <- quantile(d2$year, probs = seq(0, 1, length.out=num_knots))
+
+#create splines
+B <- bs(d2$year
+        , knots = knot_list[-c(1,num_knots)]
+        , degree = 3
+        , intercept = TRUE
+)
+
+#plot splines
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(0,1)
+     , xlab = "year"
+     , ylab = "basis"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, B[,i])
+}
+
+m4H8 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <- B %*% w
+    , w ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4H8, depth = 2)
+
+post <- extract.samples(m4H8)
+
+w <- apply(post$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, w[i]*B[,i])
+}
+
+mu <- link(m4H8)
+
+mu_PI <- apply(mu, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+)
+
+shade(mu_PI
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+
+### Use better priors and avoid intercept  ----------------------------------
+
+
+m4H8b <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <- B %*% w
+    , w ~ dnorm(100, 10)
+    , sigma ~ dexp(1)
+  ), data = list(D=d2$doy, B=B)
+  , start = list(w=rep(0, ncol(B)))
+)
+
+precis(m4H8b, depth = 2)
+
+postb <- extract.samples(m4H8b)
+
+wb <- apply(postb$w, 2, mean)
+
+plot(NULL
+     , xlim = range(d2$year)
+     , ylim = c(-6,6)
+     , xlab = "year"
+     , ylab = "basis * weight"
+)
+
+for (i in 1:ncol(B)) {
+  lines(d2$year, wb[i]*B[,i])
+}
+
+mub <- link(m4H8b)
+
+mu_PIb <- apply(mub, 2, PI, prob=0.97)
+
+plot(d2$year
+     , d2$doy
+     , col=col.alpha(rangi2, 0.3)
+     , pch=16
+)
+
+shade(mu_PIb
+      , d2$year
+      , col=col.alpha("black", 0.3)
+)
+
+rm(list = ls())
 
 
