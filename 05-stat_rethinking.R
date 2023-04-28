@@ -60,3 +60,64 @@ plot(D ~ A, data = WaffleDivorce, col = rangi2)
 lines(A_seq, mu_post.mean, lwd = 2)
 
 shade(mu_post.PI, A_seq)
+
+m5.2 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + bM * M
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = WaffleDivorce
+)
+
+precis(m5.2)
+
+# Drawing DAGs
+library(dagitty)
+
+dag5.1 <- dagitty("dag{A -> D; A -> M; M -> D}")
+
+coordinates(dag5.1) <- list(x = c(A=0, D=1, M=2), y = c(A=0, D=1, M=0))
+
+plot(graphLayout(dag5.1))
+
+drawdag(dag5.1)
+
+cor(WaffleDivorce$A, WaffleDivorce$M)
+
+#DAG 1
+DMA_dag1 <- dagitty('dag{D <- A -> M -> D}')
+
+impliedConditionalIndependencies(DMA_dag1)
+
+#DAG 2
+DMA_dag2 <- dagitty('dag{D <- A -> M}')
+
+impliedConditionalIndependencies(DMA_dag2) #D is independent of M, conditional on A
+
+
+## 5.14 Approximating the posterior ----------------------------------------
+
+m5.3 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma)
+    , mu <-  a + bM*M + bA*A
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , bA ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = WaffleDivorce
+)
+
+precis(m5.3)
+
+### THIS PLOT IS NOT WORKING ###
+x <- coeftab(m5.1, m5.2, m5.3)
+x2 <- data.frame(x@coefs)
+
+plot(x@coefs
+     # , par = c("bA", "bM")
+     )
+
+plot(x2, par = c("bA", "bM"))
