@@ -655,8 +655,8 @@ dens(prior_y)
 m4m2 <- quap(
   alist(
     y ~ dnorm(mu, sigma)
-    mu ~ dnorm(0, 10)
-    sigma ~ dexp(1)
+    , mu ~ dnorm(0, 10)
+    , sigma ~ dexp(1)
   )
 )
 

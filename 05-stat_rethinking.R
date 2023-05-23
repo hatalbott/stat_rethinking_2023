@@ -389,4 +389,375 @@ plot(colMeans(D_sim) ~ A_seq)
 
 # 5.2 Masked relationship -------------------------------------------------
 
+library(rethinking)
+
+data("milk")
+
+milk$K <- standardize(milk$kcal.per.g)
+milk$N <- standardize(milk$neocortex.perc)
+milk$M <- standardize(log(milk$mass))
+milk$M2 <- standardize(milk$mass)
+
+str(milk)
+
+plot(milk$K ~ milk$N)
+
+m5.5_draft <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N
+    , a ~ dnorm(0, 1)
+    , bN ~ dnorm(0, 1)
+    , sigma ~ dexp(1)
+  ), data = milk
+)
+
+milk_cc <- milk[complete.cases(milk$K, milk$N, milk$M, milk$M2), ]
+
+m5.5_draft <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N
+    , a ~ dnorm(0, 1)
+    , bN ~ dnorm(0, 1)
+    , sigma ~ dexp(1)
+  ), data = milk_cc
+)
+ 
+precis(m5.5_draft)
+
+prior_draft <- extract.prior(m5.5_draft)
+
+xseq <- c(-2, 2)
+
+mu_draft <- link(m5.5_draft, post = prior_draft, data = list(N = xseq))
+
+plot(NULL
+     , xlim = xseq
+     , ylim = xseq
+     , xlab = "neocortex percent (std)"
+     , ylab = "kilocal per g (std)"
+     , main = "a ~ dnorm(0, 1)
+     bN ~ dnorm(0, 1)"
+     )
+
+for (i in 1:50) {
+  lines(xseq, mu_draft[i, ], col = col.alpha("black", 0.3))
+}
+
+m5.5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = milk_cc
+)
+
+precis(m5.5_draft)
+precis(m5.5)
+
+prior <- extract.prior(m5.5)
+
+mu <- link(m5.5, post = prior, data = list(N = xseq))
+
+plot(NULL
+     , xlim = xseq
+     , ylim = xseq
+     , xlab = "neocortex percent (std)"
+     , ylab = "kilocal per g (std)"
+     , main = "a ~ dnorm(0, 0.2)
+     bN ~ dnorm(0, 0.5)"
+)
+
+for (i in 1:50) {
+  lines(xseq, mu[i, ], col = col.alpha("black", 0.3))
+}
+
+xseq <- seq(from = min(milk_cc$N)-0.15, to = max(milk_cc$N)+0.15, length.out = 30)
+
+mu <- link(m5.5, data = list(N = xseq))
+
+mu_mean <- apply(mu, 2, mean)
+
+mu_PI <- apply(mu, 2, PI)
+
+plot(K ~ N, data = milk_cc
+     , main = "Neocortex Percent"
+     , xlab = "neocortex percent (std)"
+     , ylab = "kilocal per g (std)"
+)
+
+lines(xseq, mu_mean, lwd = 2)
+
+shade(mu_PI, xseq)
+
+#Female body mass
+plot(milk$K ~ milk$N)
+
+m5.6 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = milk_cc
+)
+
+precis(m5.6)
+
+m5.6b <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bM*M2
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = milk_cc
+)
+
+precis(m5.6b)
+
+mseq <- seq(from = min(milk_cc$M)-0.15, to = max(milk_cc$M)+0.15, length.out = 30)
+
+mu_m <- link(m5.6, data = list(M = mseq))
+
+mu_mean_m <- apply(mu_m, 2, mean)
+
+mu_PI_m <- apply(mu_m, 2, PI)
+
+plot(K ~ M, data = milk_cc
+     , main = "Female Body Mass"
+     , xlab = "log body mass (std)"
+     , ylab = "kilocal per g (std)"
+     )
+
+lines(mseq, mu_mean_m, lwd = 2)
+
+shade(mu_PI_m, mseq)
+
+# Multivariate model - Both predictor variables
+
+m5.7 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = milk_cc
+)
+
+precis(m5.7)
+
+m5.7b <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N + bM*M2
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = milk_cc
+)
+
+precis(m5.7b)
+
+plot(coeftab(m5.5, m5.6, m5.6b, m5.7, m5.7b), pars = c("bM", "bN"))
+
+pairs(~K + M + N, milk_cc)
+
+#Counterfactual plots N = 0
+mu_cfN <- link(m5.7, data = data.frame(M = mseq, N = 0))
+
+mu_mean_cfN <- apply(mu_cfN, 2, mean)
+
+mu_PI_cfN <- apply(mu_cfN, 2, PI)
+
+plot(NULL
+     , xlim = range(milk_cc$M)
+     , ylim = range(milk_cc$K)
+     , main = "Counterfactual holding N = 0"
+     , xlab = "log body mass (std)"
+     , ylab = "kilocal per g (std)"
+     )
+
+lines(mseq, mu_mean_cfN, lwd = 2)
+
+shade(mu_PI_cfN, mseq)
+
+#Counterfactual plots M = 0
+mu_cfM <- link(m5.7, data = data.frame(M = 0, N = xseq))
+
+mu_mean_cfM <- apply(mu_cfM, 2, mean)
+
+mu_PI_cfM <- apply(mu_cfM, 2, PI)
+
+plot(NULL
+     , xlim = range(milk_cc$M)
+     , ylim = range(milk_cc$K)
+     , main = "Counterfactual holding M = 0"
+     , xlab = "neocortex percent (std)"
+     , ylab = "kilocal per g (std)"
+)
+
+lines(xseq, mu_mean_cfM, lwd = 2)
+
+shade(mu_PI_cfM, xseq)
+
+
+## 5.2 Overthinking --------------------------------------------------------
+
+# M -> K <- N
+# M - > N
+
+n <- 100
+M <- rnorm(n)
+N <- rnorm(n, M)
+K <- rnorm(n, N-M)
+d_sim <- data.frame(K=K, N=N, M=M)
+
+m5.5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim
+)
+
+m5.6 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim
+)
+
+m5.7 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim
+)
+
+precis(m5.5)
+precis(m5.6)
+precis(m5.7)
+
+# M -> K <- N
+# N - > M
+
+n <- 100
+N <- rnorm(n)
+M <- rnorm(n, N)
+K <- rnorm(n, N-M)
+d_sim2 <- data.frame(K=K, N=N, M=M)
+
+m5.5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim2
+)
+
+m5.6 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim2
+)
+
+m5.7 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim2
+)
+
+precis(m5.5)
+precis(m5.6)
+precis(m5.7)
+
+# M -> K <- N
+# M <- U -> M
+
+n <- 100
+U <- rnorm(n)
+N <- rnorm(n, U)
+M <- rnorm(n, U)
+K <- rnorm(n, N-M)
+d_sim3 <- data.frame(K=K, N=N, M=M)
+
+m5.5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim3
+)
+
+m5.6 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim3
+)
+
+m5.7 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma)
+    , mu <-  a + bN*N + bM*M
+    , a ~ dnorm(0, 0.2)
+    , bN ~ dnorm(0, 0.5)
+    , bM ~ dnorm(0, 0.5)
+    , sigma ~ dexp(1)
+  ), data = d_sim3
+)
+
+precis(m5.5)
+precis(m5.6)
+precis(m5.7)
+
+dag5.7 <- dagitty::dagitty("dag{
+M -> K <- N
+M -> N
+                           }")
+
+dagitty::coordinates(dag5.7) <- list(x=c(M=0, K=1, N=2)
+                            , y=c(M=0.5, K=1, N=0.5)
+                            )
+
+MElist <- dagitty::equivalentDAGs(dag5.7)
+
+drawdag(MElist)
+
+
+# 5.3 Categorical variables -----------------------------------------------
+
 
